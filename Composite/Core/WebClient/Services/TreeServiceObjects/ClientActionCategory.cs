@@ -21,8 +21,5 @@ namespace Composite.Core.WebClient.Services.TreeServiceObjects
 
         /// <exclude />
         public string FolderName { get; set; }
-
-        /// <exclude />
-        public string ActionBundle { get; set; }
     }
 }

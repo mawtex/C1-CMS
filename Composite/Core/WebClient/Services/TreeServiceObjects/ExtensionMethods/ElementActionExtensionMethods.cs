@@ -31,9 +31,8 @@ namespace Composite.Core.WebClient.Services.TreeServiceObjects.ExtensionMethods
                                    Name = action.VisualData.ActionLocation.ActionType.ToString(),
                                    IsInFolder = action.VisualData.ActionLocation.IsInFolder,
                                    IsInToolbar = action.VisualData.ActionLocation.IsInToolbar,
-                                   FolderName = action.VisualData.ActionLocation.FolderName,
-                                   ActionBundle = action.VisualData.ActionLocation.ActionBundle
-                          }
+                                   FolderName = action.VisualData.ActionLocation.FolderName
+                               }
                       };
 
             return clientActions.ToList();

@@ -40,12 +40,6 @@ namespace Composite.Plugins.GlobalSettings.GlobalSettingsProviders
         }
 
 
-        public string ApplicationShortName
-        {
-            get { return _configurationData.ApplicationShortName; }
-        }
-
-
         public string BrandedVersionAssemblySource
         {
             get { return _configurationData.BrandedVersionAssemblySource; }
@@ -339,14 +333,6 @@ namespace Composite.Plugins.GlobalSettings.GlobalSettingsProviders
         {
             get { return (string)base[_applicationNamePropertyName]; }
             set { base[_applicationNamePropertyName] = value; }
-        }
-
-        private const string _applicationShortNamePropertyName = "applicationShortName";
-        [ConfigurationProperty(_applicationShortNamePropertyName, IsRequired = true, DefaultValue = "C1")]
-        public string ApplicationShortName
-        {
-            get { return (string)base[_applicationShortNamePropertyName]; }
-            set { base[_applicationShortNamePropertyName] = value; }
         }
 
         private const string _brandedVersionAssemblySourcePropertyName = "brandedVersionAssemblySource";

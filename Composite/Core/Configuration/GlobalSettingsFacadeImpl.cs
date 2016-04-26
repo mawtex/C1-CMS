@@ -20,14 +20,6 @@ namespace Composite.Core.Configuration
             }
         }
 
-        public string ApplicationShortName
-        {
-            get
-            {
-                return GlobalSettingsProviderPluginFacade.ApplicationShortName;
-            }
-        }
-
         public string BrandedVersionAssemblySource
         {
             get { return GlobalSettingsProviderPluginFacade.BrandedVersionAssemblySource; }

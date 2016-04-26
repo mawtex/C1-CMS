@@ -34,16 +34,6 @@ namespace Composite.Core.Configuration.Foundation.PluginFacades
 
 
 
-        public static string ApplicationShortName
-        {
-            get
-            {
-                return UseReaderLock(provider => provider.ApplicationShortName);
-            }
-        }
-
-
-
         public static string BrandedVersionAssemblySource
         {
             get

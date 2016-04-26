@@ -5,7 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Xml.Linq;
+using Composite.Core.Extensions;
 using Composite.Core.IO;
+using Composite.Core.Types;
 using Composite.Core.Xml;
 
 using Texts = Composite.Core.ResourceSystem.LocalizationFiles.Composite_Core_PackageSystem_PackageFragmentInstallers;
@@ -183,8 +185,8 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
         {
             Verify.IsNotNull(_filesToCopy, "{0} has not been validated", this.GetType().Name);
 
-            var asmBindingsToAdd = new List<AssemblyName>();
-
+            var dependencies = new List<Pair<string, Version>>();
+            var asmBindingsToAdd = new List<AssemblyBindingInfo>();
 
             var fileElements = new List<XElement>();
             foreach (FileToCopy fileToCopy in _filesToCopy)
@@ -197,10 +199,11 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
                 this.InstallerContext.ZipFileSystem.WriteFileToDisk(fileToCopy.SourceFilename, tempFileName);
 
                 // Checking for dll version here:
-                var sourceAssemblyName = AssemblyName.GetAssemblyName(tempFileName);
-                var sourceAssemblyVersion = sourceAssemblyName.Version;
-                var sourceFileVersion = GetDllFileVersion(tempFileName);
-                
+                var sourceFileVersionInfo = FileVersionInfo.GetVersionInfo(tempFileName);
+                var sourceFileVersion = GetDllProductVersion(tempFileName);
+
+                dependencies.Add(new Pair<string, Version>(fileToCopy.TargetRelativeFilePath, sourceFileVersion));
+
                 string targetDirectory = Path.GetDirectoryName(fileToCopy.TargetFilePath);
                 if (!Directory.Exists(targetDirectory))
                 {
@@ -213,28 +216,25 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
 
                 if (C1File.Exists(fileToCopy.TargetFilePath) && fileToCopy.Overwrite)
                 {
-                    var existingAssemblyVersion = AssemblyName.GetAssemblyName(fileToCopy.TargetFilePath).Version;
-                    var existingFileVersion = GetDllFileVersion(fileToCopy.TargetFilePath);
+                    var existingFileVersion = GetDllProductVersion(fileToCopy.TargetFilePath);
 
-                    if (existingAssemblyVersion == sourceAssemblyVersion 
-                        && existingFileVersion >= sourceFileVersion)
+                    if (existingFileVersion == sourceFileVersion)
                     {
                         Log.LogInformation(LogTitle,
-                            "Skipping installation for file '{0}' version '{1}'. An assembly with the same version already exists.",
-                            fileToCopy.TargetRelativeFilePath, sourceAssemblyVersion);
+                            "Skipping installation for file '{0}' version '{1}'. A file with the same version already exists.",
+                            fileToCopy.TargetRelativeFilePath, sourceFileVersion);
                         continue;
                     }
 
-                    if (existingAssemblyVersion > sourceAssemblyVersion)
+                    if (existingFileVersion > sourceFileVersion)
                     {
                         Log.LogInformation(LogTitle,
                             "Skipping installation for file '{0}' version '{1}', as a file with a newer version '{2}' already exists.",
-                            fileToCopy.TargetRelativeFilePath, sourceAssemblyVersion, existingAssemblyVersion);
+                            fileToCopy.TargetRelativeFilePath, sourceFileVersion, existingFileVersion);
                         continue;
                     }
 
-                    addAssemblyBinding = existingAssemblyVersion < sourceAssemblyVersion;
-
+                    addAssemblyBinding = true;
                     if ((C1File.GetAttributes(fileToCopy.TargetFilePath) & FileAttributes.ReadOnly) > 0)
                     {
                         FileUtils.RemoveReadOnly(fileToCopy.TargetFilePath);
@@ -257,7 +257,12 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
                 
                 if (addAssemblyBinding)
                 {
-                    asmBindingsToAdd.Add(sourceAssemblyName);
+                    asmBindingsToAdd.Add(new AssemblyBindingInfo
+                    {
+                        FilePath = fileToCopy.TargetFilePath,
+                        FileVersionInfo = sourceFileVersionInfo,
+                        VersionInfo = sourceFileVersion
+                    });
                 }
                 
 
@@ -281,17 +286,16 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
             yield return new XElement("Files", fileElements);
         }
 
-        private Version GetDllFileVersion(string dllFilePath)
+        private Version GetDllProductVersion(string dllFilePath)
         {
             var fileVersionInfo = FileVersionInfo.GetVersionInfo(dllFilePath);
             return new Version(
-                fileVersionInfo.FileMajorPart,
-                fileVersionInfo.FileMinorPart,
-                fileVersionInfo.FileBuildPart,
-                fileVersionInfo.FilePrivatePart);
+                fileVersionInfo.ProductMajorPart, 
+                fileVersionInfo.ProductMinorPart, 
+                fileVersionInfo.ProductBuildPart);
         }
 
-        private void UpdateBindingRedirects(IEnumerable<AssemblyName> assemblyNames)
+        private void UpdateBindingRedirects(IEnumerable<AssemblyBindingInfo> changedFiles)
         {
             string webConfigPath = PathUtil.Resolve("~/web.config");
 
@@ -299,9 +303,9 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
 
             var assemblyBindingConfig = new AssemblyBindingConfiguration(webConfig);
 
-            foreach (var assemblyName in assemblyNames)
+            foreach (var file in changedFiles)
             {
-                assemblyBindingConfig.AddRedirectsForAssembly(assemblyName);
+                assemblyBindingConfig.AddRedirectsForAssembly(file.FilePath, file.FileVersionInfo, file.VersionInfo);
             }
 
             assemblyBindingConfig.SaveIfChanged(webConfigPath);
@@ -314,6 +318,13 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
 
 
             return directory.GetHashCode() + "_" + fileName;
+        }
+
+        private class AssemblyBindingInfo
+        {
+            public FileVersionInfo FileVersionInfo;
+            public Version VersionInfo;
+            public string FilePath;
         }
 
 
@@ -367,10 +378,22 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
                         .ToArray();
             }
 
-            public void AddRedirectsForAssembly(AssemblyName assemblyName)
+            public void AddRedirectsForAssembly(string filePath, FileVersionInfo fileVersionInfo, Version version)
             {
-                var version = assemblyName.Version;
-                string newTargetVersionStr = assemblyName.Version.ToString();
+                string newTargetVersionStr = "{0}.{1}.{2}.0".FormatWith(version.Major, version.Minor, version.Build);
+
+                AssemblyName assemblyName;
+
+                try
+                {
+                    assemblyName = AssemblyName.GetAssemblyName(filePath);
+                }
+                catch (Exception ex)
+                {
+                    Log.LogWarning(LogTitle, "Failed to get assembly name for dll '{0}'", fileVersionInfo.InternalName ?? fileVersionInfo.FileName);
+                    Log.LogWarning(LogTitle, ex);
+                    return;
+                }
 
                 var existingBinding = GetDependantAssemblies().FirstOrDefault(a => a.Name == assemblyName.Name);
 
@@ -383,11 +406,14 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
                     }
 
                     var oldRedirectToVersion = new Version(existingBinding.NewVersion);
-                    if (oldRedirectToVersion == version)
+                    if (oldRedirectToVersion.Major == version.Major
+                        && oldRedirectToVersion.Minor == version.Minor
+                        && oldRedirectToVersion.Build == version.Build)
                     {
                         return;
                     }
 
+                    
                     existingBinding.OldVersion = "0.0.0.0-" + newTargetVersionStr;
                     existingBinding.NewVersion = newTargetVersionStr;
 
@@ -418,7 +444,7 @@ namespace Composite.Core.PackageSystem.PackageFragmentInstallers
 
                 return publicKeyTokenBytes == null || publicKeyTokenBytes.Length == 0 
                     ? "null" 
-                    : string.Join("", publicKeyTokenBytes.Select(b => $"{b:x2}"));
+                    : string.Join("", publicKeyTokenBytes.Select(b => string.Format("{0:x2}", b)));
             }
 
             public void SaveIfChanged(string fileName)
